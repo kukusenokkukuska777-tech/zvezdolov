@@ -14,10 +14,11 @@
     .stat{background:var(--panel);border:1px solid var(--line);border-radius:18px;padding:10px 14px;backdrop-filter:blur(12px);box-shadow:0 12px 40px #080a1b55}
     .label{font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--muted)}.value{font-size:clamp(20px,5vw,29px);font-weight:750;font-variant-numeric:tabular-nums;margin-top:2px}.stat:nth-child(2){text-align:center}.stat:nth-child(3){text-align:right}
     .overlay{position:fixed;inset:0;display:grid;place-items:center;padding:22px;background:linear-gradient(#0b0d2055,#0b0d2088);transition:opacity .25s,visibility .25s}.overlay.hidden{opacity:0;visibility:hidden;pointer-events:none}
-    .card{width:min(440px,100%);text-align:center;padding:32px 26px 28px;border-radius:28px;background:linear-gradient(145deg,rgba(39,44,91,.94),rgba(23,27,59,.94));border:1px solid var(--line);box-shadow:0 28px 90px #07081799;backdrop-filter:blur(18px)}
+    .card{width:min(440px,100%);max-height:calc(100dvh - 44px);overflow-y:auto;text-align:center;padding:32px 26px 28px;border-radius:28px;background:linear-gradient(145deg,rgba(39,44,91,.94),rgba(23,27,59,.94));border:1px solid var(--line);box-shadow:0 28px 90px #07081799;backdrop-filter:blur(18px)}
     .logo{font-size:54px;filter:drop-shadow(0 0 18px #ffd66e88);margin-bottom:5px}.eyebrow{color:var(--gold);font-size:12px;font-weight:700;letter-spacing:.18em;text-transform:uppercase}h1{font-size:clamp(32px,8vw,46px);line-height:1.05;margin:10px 0 12px;letter-spacing:-.04em}.desc{color:#c6c8e1;line-height:1.55;margin:0 auto 23px;max-width:330px}
     button{border:0;border-radius:15px;padding:14px 24px;font:inherit;font-weight:800;color:#282243;background:linear-gradient(135deg,#ffe78f,#ffc65f);box-shadow:0 8px 24px #ffce6d33;cursor:pointer;transition:transform .15s,filter .15s}button:hover{filter:brightness(1.06);transform:translateY(-2px)}button:active{transform:translateY(1px)}
     .hint{font-size:12px;color:var(--muted);margin:18px 0 0}.result{font-size:58px;font-weight:850;letter-spacing:-.06em;color:var(--gold);margin:5px 0}.result-caption{color:#c6c8e1;margin:0 0 22px}.footer{position:fixed;bottom:max(14px,env(safe-area-inset-bottom));left:0;right:0;text-align:center;color:#a8aac988;font-size:11px;pointer-events:none}
+    .leaders{margin:22px auto 0;max-width:340px;text-align:left}.leaders h2{font-size:16px;margin:0 0 9px;text-align:center}.leader-list{list-style:none;padding:0;margin:0;max-height:180px;overflow:auto}.leader-list li{display:grid;grid-template-columns:32px 1fr auto;gap:8px;padding:6px 9px;border-bottom:1px solid var(--line);font-size:13px}.leader-list li:first-child{color:var(--gold);font-weight:750}.leader-score{font-variant-numeric:tabular-nums;font-weight:750}.leader-empty{text-align:center;color:var(--muted);font-size:13px;padding:8px}.name-input{width:min(280px,100%);margin:0 0 10px;padding:12px 14px;border:1px solid var(--line);border-radius:12px;background:#11142c;color:var(--ink);font:inherit}.secondary{padding:11px 18px;margin-bottom:4px;background:linear-gradient(135deg,#d9ddff,#aeb9ff)}
     @media(max-width:420px){.hud{gap:6px}.stat{padding:9px 10px;border-radius:15px}.label{font-size:9px}.value{font-size:21px}}
   </style>
 </head>
@@ -35,11 +36,15 @@
       <p class="desc">Лови падающие звёзды и набери как можно больше очков за минуту. Нажимай мышкой или пальцем.</p>
       <button id="start">Начать игру</button>
       <p class="hint">Рекорд сохраняется на этом устройстве</p>
+      <section class="leaders"><h2>🏆 Топ-10 игроков на этом устройстве</h2><ol class="leader-list" id="introLeaders"></ol></section>
     </section>
     <section class="card" id="end" hidden>
       <div class="logo">✨</div><div class="eyebrow">Время вышло</div>
       <h1>Твой результат</h1><div class="result" id="finalScore">0</div>
       <p class="result-caption" id="recordText">Попробуй побить свой рекорд!</p>
+      <input class="name-input" id="playerName" maxlength="20" placeholder="Твоё имя" aria-label="Имя для таблицы лидеров">
+      <button class="secondary" id="saveScore">Сохранить результат</button>
+      <section class="leaders"><h2>🏆 Топ-10 игроков на этом устройстве</h2><ol class="leader-list" id="endLeaders"></ol></section>
       <button id="again">Ещё раз</button>
     </section>
   </div>
@@ -49,8 +54,12 @@
       const canvas=document.getElementById('game'),ctx=canvas.getContext('2d');
       const scoreEl=document.getElementById('score'),timeEl=document.getElementById('time'),bestEl=document.getElementById('best');
       const overlay=document.getElementById('overlay'),intro=document.getElementById('intro'),end=document.getElementById('end');
-      let w=0,h=0,dpr=1,stars=[],dust=[],score=0,best=Number(localStorage.getItem('zvezdolov-best')||0),playing=false,remaining=60,last=0,spawn=0,raf=0;
+      const LEADERS_KEY='zvezdolov-leaders';
+      let w=0,h=0,dpr=1,stars=[],dust=[],score=0,best=Number(localStorage.getItem('zvezdolov-best')||0),playing=false,remaining=60,last=0,spawn=0,raf=0,scoreSaved=false;
       bestEl.textContent=best;
+      function getLeaders(){try{const v=JSON.parse(localStorage.getItem(LEADERS_KEY)||'[]');return Array.isArray(v)?v:[]}catch{return []}}
+      function renderLeaders(target){const list=document.getElementById(target),rows=getLeaders().sort((a,b)=>b.score-a.score).slice(0,10);list.replaceChildren();if(!rows.length){const li=document.createElement('li');li.className='leader-empty';li.textContent='Пока нет результатов';list.append(li);return}rows.forEach((r,i)=>{const li=document.createElement('li'),rank=document.createElement('span'),name=document.createElement('span'),points=document.createElement('span');rank.textContent=`${i+1}.`;name.textContent=r.name;points.className='leader-score';points.textContent=`${r.score} ✦`;li.append(rank,name,points);list.append(li)})}
+      renderLeaders('introLeaders');
       function resize(){dpr=Math.min(devicePixelRatio||1,2);w=innerWidth;h=innerHeight;canvas.width=Math.round(w*dpr);canvas.height=Math.round(h*dpr);ctx.setTransform(dpr,0,0,dpr,0,0);dust=Array.from({length:Math.max(40,Math.round(w*h/11000))},()=>({x:Math.random()*w,y:Math.random()*h,r:Math.random()*1.5+.3,a:Math.random()*.6+.15,p:Math.random()*6.28}));}
       addEventListener('resize',resize);resize();
       function starPath(x,y,r){ctx.beginPath();for(let i=0;i<10;i++){let a=-Math.PI/2+i*Math.PI/5,rr=i%2?r*.43:r;let px=x+Math.cos(a)*rr,py=y+Math.sin(a)*rr;i?ctx.lineTo(px,py):ctx.moveTo(px,py)}ctx.closePath()}
@@ -61,9 +70,10 @@
       function makeStar(){let r=14+Math.random()*11;stars.push({x:r+Math.random()*(w-r*2),y:-r,r,vy:85+Math.random()*95,rot:Math.random()*6.28,spin:(Math.random()-.5)*1.8,age:0})}
       function update(now){if(!playing)return;let dt=Math.min((now-last)/1000,.05);last=now;remaining=Math.max(0,remaining-dt);timeEl.textContent=Math.ceil(remaining);spawn-=dt;if(spawn<=0){makeStar();spawn=Math.max(.22,.72-score*.002)+Math.random()*.25}for(let i=stars.length-1;i>=0;i--){let s=stars[i];s.y+=s.vy*dt;s.rot+=s.spin*dt;if(s.y-s.r>h+12)stars.splice(i,1)}if(remaining<=0){finish();return}raf=requestAnimationFrame(update)}
       function start(){score=0;remaining=60;spawn=0;stars=[];playing=true;scoreEl.textContent='0';timeEl.textContent='60';intro.hidden=true;end.hidden=true;overlay.classList.add('hidden');last=performance.now();cancelAnimationFrame(raf);raf=requestAnimationFrame(draw);update(last)}
-      function finish(){playing=false;cancelAnimationFrame(raf);document.getElementById('finalScore').textContent=score;let record=score>best;if(record){best=score;localStorage.setItem('zvezdolov-best',String(best));bestEl.textContent=best}document.getElementById('recordText').textContent=record?'Новый рекорд! Так держать 🌟':'Попробуй побить свой рекорд!';end.hidden=false;overlay.classList.remove('hidden')}
+      function finish(){playing=false;cancelAnimationFrame(raf);document.getElementById('finalScore').textContent=score;scoreSaved=false;document.getElementById('playerName').value=localStorage.getItem('zvezdolov-name')||'';let record=score>best;if(record){best=score;localStorage.setItem('zvezdolov-best',String(best));bestEl.textContent=best}document.getElementById('recordText').textContent=record?'Новый рекорд! Введи имя и сохрани результат 🌟':'Введи имя, чтобы попасть в таблицу лидеров';renderLeaders('endLeaders');end.hidden=false;overlay.classList.remove('hidden')}
+      function saveScore(){if(scoreSaved)return;const input=document.getElementById('playerName'),name=input.value.trim().slice(0,20);if(!name){input.focus();input.placeholder='Сначала введи имя';return}const rows=getLeaders(),existing=rows.find(r=>r.name.toLocaleLowerCase()===name.toLocaleLowerCase());if(existing)existing.score=Math.max(existing.score,score);else rows.push({name,score});rows.sort((a,b)=>b.score-a.score);localStorage.setItem(LEADERS_KEY,JSON.stringify(rows.slice(0,10)));localStorage.setItem('zvezdolov-name',name);scoreSaved=true;document.getElementById('recordText').textContent='Результат сохранён 🏆';renderLeaders('endLeaders');renderLeaders('introLeaders')}
       function catchStar(e){if(!playing)return;let rect=canvas.getBoundingClientRect(),x=e.clientX-rect.left,y=e.clientY-rect.top;for(let i=stars.length-1;i>=0;i--){let s=stars[i],dist=Math.hypot(x-s.x,y-s.y);if(dist<s.r+13){stars.splice(i,1);score++;scoreEl.textContent=score;return}}}
-      canvas.addEventListener('pointerdown',catchStar);document.getElementById('start').addEventListener('click',start);document.getElementById('again').addEventListener('click',start);addEventListener('keydown',e=>{if((e.code==='Space'||e.code==='Enter')&&!playing&&!overlay.classList.contains('hidden')){e.preventDefault();start()}});
+      canvas.addEventListener('pointerdown',catchStar);document.getElementById('start').addEventListener('click',start);document.getElementById('again').addEventListener('click',start);document.getElementById('saveScore').addEventListener('click',saveScore);addEventListener('keydown',e=>{if((e.code==='Space'||e.code==='Enter')&&!playing&&!overlay.classList.contains('hidden')&&end.hidden){e.preventDefault();start()}});
     })();
   </script>
 </body>
